@@ -1,0 +1,47 @@
+#!/bin/bash
+
+# derived from https://github.com/saalfeldlab/n5-utils/blob/master/install
+
+VERSION="0.0.1-SNAPSHOT"
+INSTALL_DIR=${1:-$(pwd)}
+OPSYS=${2:-"linux"}
+
+echo "Installing into $INSTALL_DIR"
+echo "Assuming operating system $OPSYS"
+
+# check for operating system
+if [[ "$OPSYS" == "linux" ]]; then
+  MEM=$(cat /proc/meminfo | grep MemTotal | sed s/^MemTotal:\\\s*\\\|\\\s\\+[^\\\s]*$//g)
+  MEM=$(($MEM/2/1024/1024))
+elif [[ "$OPSYS" == "osx" ]]; then
+  # sysctl returns total hardware memory size in bytes
+  MEM=$(sysctl hw.memsize | grep hw.memsize | sed s/hw.memsize://g)
+  MEM=$(($MEM/2/1024/1024/1024))
+else
+  echo "ERROR - Operating system (arg2) must be either linux or osx - EXITING"
+  exit
+fi
+
+# mvn clean install
+# temporary workaround for openjdk plus surefire bug
+_JAVA_OPTIONS=-Djdk.net.URLClassPath.disableClassPathURLCheck=true mvn clean install
+mvn -Dmdep.outputFile=cp.txt -Dmdep.includeScope=runtime dependency:build-classpath
+
+echo '#!/bin/bash' > sciview-cli
+echo '' >> sciview-cli
+echo "JAR=\$HOME/.m2/repository/sc/iview/cli/${VERSION}/cli-${VERSION}.jar" >> sciview-cli
+echo 'java \' >> sciview-cli
+echo "  -Xmx${MEM}g \\" >> sciview-cli
+echo '  -XX:+UseConcMarkSweepGC \' >> sciview-cli
+echo -n '  -cp $JAR:' >> sciview-cli
+echo -n $(cat cp.txt) >> sciview-cli
+echo ' \' >> sciview-cli
+echo '  sc.iview.cli.Main "$@"' >> sciview-cli
+
+chmod a+x sciview-cli
+
+rm cp.txt
+
+mkdir -p $INSTALL_DIR
+mv sciview-cli $INSTALL_DIR/
+
